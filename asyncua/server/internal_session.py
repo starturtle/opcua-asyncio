@@ -89,8 +89,7 @@ class InternalSession:
         id_token = params.UserIdentityToken
         if self.iserver.user_manager is not None:
             if isinstance(id_token, ua.UserNameIdentityToken):
-                username = id_token.UserName
-                password = id_token.Password
+                username, password = self.iserver.check_user_token(self, id_token)
             else:
                 username, password = None, None
 
@@ -190,3 +189,6 @@ class InternalSession:
 
     def publish(self, acks: Optional[Iterable[ua.SubscriptionAcknowledgement]] = None):
         return self.subscription_service.publish(acks or [])
+
+    def modify_subscription(self, params, callback):
+        return self.subscription_service.modify_subscription(params, callback)

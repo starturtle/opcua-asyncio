@@ -267,7 +267,7 @@ class NodeId(object):
     Args:
         identifier: The identifier might be an int, a string, bytes or a Guid
         namespaceidx(int): The index of the namespace
-        nodeidtype(NodeIdType): The type of the nodeid if it cannor be guess or you want something
+        nodeidtype(NodeIdType): The type of the nodeid if it cannot be guess or you want something
         special like twobyte nodeid or fourbytenodeid
 
 
@@ -306,6 +306,23 @@ class NodeId(object):
                 self.NodeIdType = NodeIdType.Guid
             else:
                 raise UaError("NodeId: Could not guess type of NodeId, set NodeIdType")
+        else:
+            self.check_identifier_type_compatibility()
+
+    def check_identifier_type_compatibility(self):
+        '''
+        Check whether the given identifier can be interpreted as the given node identifier type.
+        '''
+        valid_type_combinations = [
+            (int, [NodeIdType.Numeric, NodeIdType.TwoByte, NodeIdType.FourByte]),
+            (str, [NodeIdType.String, NodeIdType.ByteString]),
+            (bytes, [NodeIdType.ByteString, NodeIdType.TwoByte, NodeIdType.FourByte]),
+            (uuid.UUID, [NodeIdType.Guid])
+        ]
+        for identifier, valid_node_types in valid_type_combinations:
+            if isinstance(self.Identifier, identifier) and self.NodeIdType in valid_node_types:
+                return
+        raise UaError(f"NodeId of type {self.NodeIdType} has an incompatible identifier {self.Identifier} of type {type(self.Identifier)}")
 
     def __eq__(self, node):
         return isinstance(node, NodeId) and self.NamespaceIndex == node.NamespaceIndex and self.Identifier == node.Identifier
@@ -329,7 +346,7 @@ class NodeId(object):
     def has_null_identifier(self):
         if not self.Identifier:
             return True
-        if self.NodeIdType == NodeIdType.Guid and re.match(b'\00+', self.Identifier.bytes):
+        if self.NodeIdType is NodeIdType.Guid and self.Identifier.int == 0:
             return True
         return False
 
@@ -733,7 +750,10 @@ class Variant(FrozenClass):
         if self.VariantType is None:
             self.VariantType = self._guess_type(self.Value)
         if self.Value is None and not self.is_array and self.VariantType not in (VariantType.Null, VariantType.String, VariantType.DateTime, VariantType.ExtensionObject):
-            raise UaError(f"Non array Variant of type {self.VariantType} cannot have value None")
+            if self.Value == None and self.VariantType == VariantType.NodeId:
+                self.Value = NodeId(0,0)
+            else:
+                raise UaError(f"Non array Variant of type {self.VariantType} cannot have value None")
         if self.Dimensions is None and isinstance(self.Value, (list, tuple)):
             dims = get_shape(self.Value)
             if len(dims) > 1:
@@ -748,6 +768,7 @@ class Variant(FrozenClass):
         return not self.__eq__(other)
 
     def _guess_type(self, val):
+        error_val = None
         if isinstance(val, (list, tuple)):
             error_val = val
         while isinstance(val, (list, tuple)):
@@ -975,6 +996,7 @@ def register_enum(name, nodeid, class_type):
 extension_objects_by_datatype = {}  #Dict[Datatype, type]
 extension_objects_by_typeid = {}  #Dict[EncodingId, type]
 extension_object_typeids = {}
+datatype_by_extension_object = {}
 
 
 def register_extension_object(name, encoding_nodeid, class_type, datatype_nodeid=None):
@@ -984,6 +1006,7 @@ def register_extension_object(name, encoding_nodeid, class_type, datatype_nodeid
     logger.info("registring new extension object: %s %s %s %s", name, encoding_nodeid, class_type, datatype_nodeid)
     if datatype_nodeid:
         extension_objects_by_datatype[datatype_nodeid] = class_type
+        datatype_by_extension_object[class_type] = datatype_nodeid
     extension_objects_by_typeid[encoding_nodeid] = class_type
     extension_object_typeids[name] = encoding_nodeid
     # FIXME: Next line is not exactly a Python best practices, so feel free to propose something else

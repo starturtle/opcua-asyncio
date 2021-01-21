@@ -49,8 +49,11 @@ class UaProcessor:
     def open_secure_channel(self, algohdr, seqhdr, body):
         request = struct_from_binary(ua.OpenSecureChannelRequest, body)
 
-        self._connection.select_policy(
-            algohdr.SecurityPolicyURI, algohdr.SenderCertificate, request.Parameters.SecurityMode)
+        if not self._connection.is_open():
+            # Only call select_policy if the channel isn't open. Otherwise
+            # it will break the Secure channel renewal.
+            self._connection.select_policy(
+                algohdr.SecurityPolicyURI, algohdr.SenderCertificate, request.Parameters.SecurityMode)
 
         channel = self._connection.open(request.Parameters, self.iserver)
         # send response
@@ -323,6 +326,18 @@ class UaProcessor:
             response = ua.CreateSubscriptionResponse()
             response.Parameters = result
             # _logger.info("sending create subscription response")
+            self.send_response(requesthdr.RequestHandle, seqhdr, response)
+
+        elif typeid == ua.NodeId(ua.ObjectIds.ModifySubscriptionRequest_Encoding_DefaultBinary):
+            _logger.info("modify subscription request")
+            params = struct_from_binary(ua.ModifySubscriptionParameters, body)
+
+            result = self.session.modify_subscription(params, self.forward_publish_response)
+
+            response = ua.ModifySubscriptionResponse()
+            response.Parameters = result
+
+            #_logger.info("sending modify subscription response")
             self.send_response(requesthdr.RequestHandle, seqhdr, response)
 
         elif typeid == ua.NodeId(ua.ObjectIds.DeleteSubscriptionsRequest_Encoding_DefaultBinary):

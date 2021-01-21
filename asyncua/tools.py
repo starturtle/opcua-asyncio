@@ -29,7 +29,7 @@ if sys.version_info.minor >= 7:
         return asyncio.run(coro)
 else:
     def run(coro):
-        loop = asyncio.get_event_loop()
+        loop = asyncio.new_event_loop()
         return loop.run_until_complete(coro)
 
 
@@ -146,8 +146,12 @@ async def _uaread():
             print(attr.Value)
         else:
             print(attr)
+    except Exception as e:
+        print(e)
+        sys.exit(1)
     finally:
         await client.disconnect()
+    sys.exit(0)
 
 
 def _args_to_array(val, array):
@@ -284,9 +288,12 @@ async def _uawrite():
         node = await get_node(client, args)
         val = _val_to_variant(args.value, args)
         await node.write_attribute(args.attribute, ua.DataValue(val))
+    except Exception as e:
+        print(e)
+        sys.exit(1)
     finally:
         await client.disconnect()
-
+    sys.exit(0)
 
 def uals():
     run(_uals())
@@ -322,10 +329,11 @@ async def _uals():
             elif args.long_format == 1:
                 await _lsprint_1(node, args.depth - 1)
             else:
-                _lsprint_long(node, args.depth - 1)
+                await _lsprint_long(node, args.depth - 1)
     except (OSError, concurrent.futures._base.TimeoutError) as e:
         print(e)
         sys.exit(1)
+    sys.exit(0)
 
 
 async def _lsprint_0(node, depth, indent=""):
@@ -356,11 +364,11 @@ async def _lsprint_1(node, depth, indent=""):
             await _lsprint_1(Node(node.server, desc.NodeId), depth - 1, indent + "  ")
 
 
-def _lsprint_long(pnode, depth, indent=""):
+async def _lsprint_long(pnode, depth, indent=""):
     if not indent:
         print("{0:30} {1:25} {2:25} {3:10} {4:30} {5:25}".format("DisplayName", "NodeId", "BrowseName", "DataType", "Timestamp", "Value"))
         print("")
-    for node in pnode.get_children():
+    for node in await pnode.get_children():
         attrs = node.read_attributes([ua.AttributeIds.DisplayName,
                                      ua.AttributeIds.BrowseName,
                                      ua.AttributeIds.NodeClass,
@@ -375,7 +383,7 @@ def _lsprint_long(pnode, depth, indent=""):
         else:
             print("{0}{1:30} {2:25} {3:25}".format(indent, name.to_string(), bname.to_string(), node.nodeid.to_string()))
         if depth:
-            _lsprint_long(node, depth - 1, indent + "  ")
+            await _lsprint_long(node, depth - 1, indent + "  ")
 
 
 class SubHandler(object):
@@ -550,9 +558,9 @@ async def _uaserver():
     server = Server()
     server.set_endpoint(args.url)
     if args.certificate:
-        server.load_certificate(args.certificate)
+        await server.load_certificate(args.certificate)
     if args.private_key:
-        server.load_private_key(args.private_key)
+        await server.load_private_key(args.private_key)
     server.disable_clock(args.disable_clock)
     server.set_server_name("FreeOpcUa Example Server")
     if args.xml:
@@ -577,18 +585,19 @@ async def _uaserver():
     try:
         await server.init()
         async with server:
+
             if args.shell:
                 embed()
             elif args.populate:
                 count = 0
                 while True:
-                    time.sleep(1)
+                    await asyncio.sleep(1)
                     myvar.write_value(math.sin(count / 10))
                     myarrayvar.write_value([math.sin(count / 10), math.sin(count / 100)])
                     count += 1
             else:
                 while True:
-                    time.sleep(1)
+                    await asyncio.sleep(1)
     except OSError as e:
         print(e)
         sys.exit(1)
@@ -709,6 +718,9 @@ async def _uahistoryread():
                 print(ev)
         else:
             print_history(await node.read_raw_history(starttime, endtime, numvalues=args.limit))
+    except Exception as e:
+        print(e)
+        sys.exit(1)
     finally:
         await client.disconnect()
     sys.exit(0)
@@ -770,8 +782,12 @@ async def _uacall():
                 method_id = methods[0]
         result = await node.call_method(method_id, *val)
         print(f"resulting result_variants={result}")
+    except Exception as e:
+        print(e)
+        sys.exit(1)
     finally:
         await client.disconnect()
+    sys.exit(0)
 
 
 def uageneratestructs():

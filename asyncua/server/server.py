@@ -46,7 +46,7 @@ class Server:
     Create your own namespace and then populate your server address space
     using use the get_root() or get_objects() to get Node objects.
     and get_event_object() to fire events.
-    Then start server. See example_server.py
+    Then start server. See server-example.py
     All methods are threadsafe
 
     If you need more flexibility you call directly the Ua Service methods
@@ -75,7 +75,6 @@ class Server:
 
     def __init__(self, iserver: InternalServer = None, loop: asyncio.AbstractEventLoop = None, user_manager=None):
         self.loop: asyncio.AbstractEventLoop = loop or asyncio.get_event_loop()
-        _logger = logging.getLogger(__name__)
         self.endpoint = urlparse("opc.tcp://0.0.0.0:4840/freeopcua/server/")
         self._application_uri = "urn:freeopcua:python:server"
         self.product_uri = "urn:freeopcua.github.io:python:server"
@@ -87,6 +86,7 @@ class Server:
         self.bserver: Optional[BinaryServer] = None
         self._discovery_clients = {}
         self._discovery_period = 60
+        self._discovery_handle = None
         self._policies = []
         self.nodes = Shortcuts(self.iserver.isession)
         # enable all endpoints by default
@@ -105,6 +105,9 @@ class Server:
         await self.set_application_uri(self._application_uri)
         sa_node = self.get_node(ua.NodeId(ua.ObjectIds.Server_ServerArray))
         await sa_node.write_value([self._application_uri])
+        #TODO: ServiceLevel is 255 default, should be calculated in later Versions
+        sl_node = self.get_node(ua.NodeId(ua.ObjectIds.Server_ServiceLevel))
+        await sl_node.write_value(ua.Variant(255, ua.VariantType.Byte))
 
         await self.set_build_info(self.product_uri, self.manufacturer_name, self.name, "1.0pre", "0", datetime.now())
 
@@ -220,16 +223,19 @@ class Server:
         if period:
             self.loop.call_soon(self._schedule_renew_registration)
 
-    def unregister_to_discovery(self, url: str = "opc.tcp://localhost:4840"):
+    async def unregister_to_discovery(self, url: str = "opc.tcp://localhost:4840"):
         """
         stop registration thread
         """
         # FIXME: is there really no way to deregister?
-        self._discovery_clients[url].disconnect()
+        await self._discovery_clients[url].disconnect()
+        del self._discovery_clients[url]
+        if not self._discovery_clients and self._discovery_handle:
+            self._discovery_handle.cancel()
 
     def _schedule_renew_registration(self):
         self.loop.create_task(self._renew_registration())
-        self.loop.call_later(self._discovery_period, self._schedule_renew_registration)
+        self._discovery_handle = self.loop.call_later(self._discovery_period, self._schedule_renew_registration)
 
     async def _renew_registration(self):
         for client in self._discovery_clients.values():
@@ -288,7 +294,7 @@ class Server:
         # to be called just before starting server since it needs all parameters to be setup
         if ua.SecurityPolicyType.NoSecurity in self._security_policy:
             self._set_endpoints()
-            self._policies = [ua.SecurityPolicyFactory()]
+            self._policies = [ua.SecurityPolicyFactory(permission_ruleset=self._permission_ruleset)]
 
         if self._security_policy != [ua.SecurityPolicyType.NoSecurity]:
             if not (self.certificate and self.iserver.private_key):
@@ -377,6 +383,8 @@ class Server:
         """
         Stop server
         """
+        if self._discovery_handle:
+            self._discovery_handle.cancel()
         if self._discovery_clients:
             await asyncio.wait([client.disconnect() for client in self._discovery_clients.values()])
         await self.bserver.stop()
